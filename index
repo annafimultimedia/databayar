@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SIKS-NG SP2D Formatter - Validated</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #2c3e50; color: #fff; }
+        .box { background: white; color: #333; padding: 25px; border-radius: 12px; max-width: 1350px; margin: auto; }
+        .header { display: flex; justify-content: space-between; border-bottom: 3px solid #27ae60; padding-bottom: 10px; }
+        #status { padding: 12px; margin: 10px 0; border-radius: 5px; font-weight: bold; border: 1px solid #ccc; }
+        .ok { background: #d4edda; color: #155724; border-color: #c3e6cb !important; }
+        .no { background: #f8d7da; color: #721c24; border-color: #f5c6cb !important; }
+        .table-area { overflow: auto; max-height: 480px; border: 1px solid #ddd; margin-top: 15px; }
+        table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        th { background: #27ae60; color: white; padding: 10px; position: sticky; top: 0; z-index: 10; }
+        td { border: 1px solid #ddd; padding: 8px; white-space: nowrap; color: #000; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .btn-dl { background: #27ae60; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <div class="header">
+        <h2 id="judulHeader">KONVERTER SP2D VALID</h2>
+        <button class="btn-dl" onclick="gasDownload()">📥 DOWNLOAD EXCEL (.xlsx)</button>
+    </div>
+
+    <input type="file" id="inputJSON" style="width:100%; padding:20px; border:2px dashed #27ae60; margin:15px 0;">
+    <div id="status" class="no">Pilih file JSON untuk divalidasi...</div>
+
+    <div class="table-area">
+        <table id="tbl">
+            <thead>
+                <tr>
+                    <th>NO</th>
+                    <th>NAMA PENERIMA</th>
+                    <th>NIK</th>
+                    <th>NO KK</th>
+                    <th>ALAMAT</th>
+                    <th>RT</th>
+                    <th>RW</th>
+                    <th>KELURAHAN</th>
+                    <th>KECAMATAN</th>
+                    <th>KABUPATEN</th>
+                    <th>PROVINSI</th>
+                    <th>PENYALUR</th>
+                    <th>REKENING</th>
+                    <th>STATUS</th>
+                </tr>
+            </thead>
+            <tbody id="isi"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let databaseValid = [];
+let namaKec = "DATA";
+
+document.getElementById('inputJSON').addEventListener('change', function(e) {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        try {
+            const json = JSON.parse(evt.target.result);
+            let rawData = [];
+            
+            // 1. Ambil semua data mentah
+            function cariData(obj) {
+                if (!obj || typeof obj !== 'object') return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(val => {
+                        if (val.NAMA_PENERIMA) rawData.push(val);
+                        else cariData(val);
+                    });
+                } else {
+                    if (obj.data && Array.isArray(obj.data)) {
+                        obj.data.forEach(val => { if (val.NAMA_PENERIMA) rawData.push(val); });
+                    }
+                    for (let k in obj) { if (typeof obj[k] === 'object') cariData(obj[k]); }
+                }
+            }
+            cariData(json);
+
+            // 2. Filter Anti-Duplikat berdasarkan NIK
+            const seenNik = new Set();
+            databaseValid = rawData.filter(item => {
+                const nik = item.NIK || item.NAMA_PENERIMA; // Fallback jika NIK kosong
+                const duplicate = seenNik.has(nik);
+                seenNik.add(nik);
+                return !duplicate;
+            });
+
+            prosesDanRender(); 
+        } catch (err) { alert("File JSON bermasalah!"); }
+    };
+    reader.readAsText(e.target.files[0]);
+});
+
+function pad3(val) {
+    if (!val) return "000";
+    let n = val.toString().replace(/\D/g, '');
+    return n.padStart(3, '0');
+}
+
+function prosesDanRender() {
+    const isi = document.getElementById('isi');
+    const st = document.getElementById('status');
+    isi.innerHTML = "";
+    
+    databaseValid.forEach((d, i) => {
+        let rt = d.RT, rw = d.RW;
+        if (!rt && d.ALAMAT) {
+            let m = d.ALAMAT.match(/RT:?(\d+)/i);
+            if (m) rt = m[1];
+        }
+        if (!rw && d.ALAMAT) {
+            let m = d.ALAMAT.match(/RW:?(\d+)/i);
+            if (m) rw = m[1];
+        }
+
+        const row = isi.insertRow();
+        row.innerHTML = `
+            <td>${i + 1}</td>
+            <td>${d.NAMA_PENERIMA || ''}</td>
+            <td>${d.NIK || ''}</td>
+            <td>${d.NOKK || ''}</td>
+            <td>${d.ALAMAT || ''}</td>
+            <td>${pad3(rt)}</td>
+            <td>${pad3(rw)}</td>
+            <td>${d.KEL_NAME || ''}</td>
+            <td>${d.KEC_NAME || ''}</td>
+            <td>${d.KAB_NAME || ''}</td>
+            <td>${d.PROP_NAME || ''}</td>
+            <td>${d.penyalur_wilayah || ''}</td>
+            <td>${d.rekening_dipakai || ''}</td>
+            <td>${d.status || ''}</td>
+        `;
+    });
+
+    if (databaseValid.length > 0) {
+        namaKec = (databaseValid[0].KEC_NAME || "KECAMATAN").toUpperCase();
+        document.getElementById('judulHeader').innerText = namaKec + " _ SP2D";
+        st.className = "ok";
+        st.innerHTML = "✅ <b>HASIL VALIDASI:</b> Ditemukan <b>" + databaseValid.length + "</b> data unik (Duplikasi telah dihapus).";
+    } else {
+        st.className = "no";
+        st.innerText = "❌ DATA TIDAK DITEMUKAN.";
+    }
+}
+
+function gasDownload() {
+    if (databaseValid.length === 0) return alert("Pilih file dulu!");
+    const wb = XLSX.utils.table_to_book(document.getElementById("tbl"), {raw: true});
+    const ws = wb.Sheets["Sheet1"];
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for(let R = range.s.r; R <= range.e.r; ++R) {
+        for(let C = range.s.c; C <= range.e.c; ++C) {
+            const cell = ws[XLSX.utils.encode_cell({c:C, r:R})];
+            if(cell && [2, 3, 5, 6, 12].includes(C)) cell.t = 's';
+        }
+    }
+    XLSX.writeFile(wb, namaKec + "_SP2D.xlsx");
+}
+</script>
+</body>
+</html>
