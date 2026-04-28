@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>SIKS-NG SP2D Formatter - Validated</title>
+    <title>SIKS-NG SP2D Converter</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #2c3e50; color: #fff; }
@@ -23,12 +23,12 @@
 
 <div class="box">
     <div class="header">
-        <h2 id="judulHeader">KONVERTER SP2D VALID</h2>
+        <h2 id="judulHeader">KONVERTER SP2D </h2>
         <button class="btn-dl" onclick="gasDownload()">📥 DOWNLOAD EXCEL (.xlsx)</button>
     </div>
 
-    <input type="file" id="inputJSON" style="width:100%; padding:20px; border:2px dashed #27ae60; margin:15px 0;">
-    <div id="status" class="no">Pilih file JSON untuk divalidasi...</div>
+    <input type="file" id="inputJSON" multiple style="width:100%; padding:20px; border:2px dashed #27ae60; margin:15px 0;">
+    <div id="status" class="no">Klik di atas dan pilih satu atau banyak file JSON...</div>
 
     <div class="table-area">
         <table id="tbl">
@@ -57,46 +57,64 @@
 
 <script>
 let databaseValid = [];
-let namaKec = "DATA";
+let namaKec = "DATA_GABUNGAN";
 
-document.getElementById('inputJSON').addEventListener('change', function(e) {
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        try {
-            const json = JSON.parse(evt.target.result);
-            let rawData = [];
-            
-            // 1. Ambil semua data mentah
-            function cariData(obj) {
-                if (!obj || typeof obj !== 'object') return;
-                if (Array.isArray(obj)) {
-                    obj.forEach(val => {
-                        if (val.NAMA_PENERIMA) rawData.push(val);
-                        else cariData(val);
-                    });
-                } else {
-                    if (obj.data && Array.isArray(obj.data)) {
-                        obj.data.forEach(val => { if (val.NAMA_PENERIMA) rawData.push(val); });
-                    }
-                    for (let k in obj) { if (typeof obj[k] === 'object') cariData(obj[k]); }
-                }
-            }
-            cariData(json);
+document.getElementById('inputJSON').addEventListener('change', async function(e) {
+    const files = e.target.files;
+    if (files.length === 0) return;
 
-            // 2. Filter Anti-Duplikat berdasarkan NIK
-            const seenNik = new Set();
-            databaseValid = rawData.filter(item => {
-                const nik = item.NIK || item.NAMA_PENERIMA; // Fallback jika NIK kosong
-                const duplicate = seenNik.has(nik);
-                seenNik.add(nik);
-                return !duplicate;
-            });
+    let rawDataTotal = [];
+    const st = document.getElementById('status');
+    st.innerText = `Sedang memproses ${files.length} file...`;
 
-            prosesDanRender(); 
-        } catch (err) { alert("File JSON bermasalah!"); }
+    // Fungsi untuk membaca satu file secara asinkron
+    const readFile = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (evt) => resolve(JSON.parse(evt.target.result));
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
     };
-    reader.readAsText(e.target.files[0]);
+
+    try {
+        // 1. Baca semua file satu per satu dan kumpulkan datanya
+        for (let file of files) {
+            const json = await readFile(file);
+            cariData(json, rawDataTotal);
+        }
+
+        // 2. Filter Anti-Duplikat berdasarkan NIK
+        const seenNik = new Set();
+        databaseValid = rawDataTotal.filter(item => {
+            const idUnik = item.NIK || item.NAMA_PENERIMA;
+            if (!idUnik || seenNik.has(idUnik)) return false;
+            seenNik.add(idUnik);
+            return true;
+        });
+
+        prosesDanRender();
+    } catch (err) {
+        alert("Terjadi kesalahan saat membaca file JSON. Pastikan file valid.");
+        console.error(err);
+    }
 });
+
+// Fungsi pencarian data yang sama seperti sebelumnya
+function cariData(obj, targetArray) {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) {
+        obj.forEach(val => {
+            if (val.NAMA_PENERIMA) targetArray.push(val);
+            else cariData(val, targetArray);
+        });
+    } else {
+        if (obj.data && Array.isArray(obj.data)) {
+            obj.data.forEach(val => { if (val.NAMA_PENERIMA) targetArray.push(val); });
+        }
+        for (let k in obj) { if (typeof obj[k] === 'object') cariData(obj[k], targetArray); }
+    }
+}
 
 function pad3(val) {
     if (!val) return "000";
@@ -140,10 +158,10 @@ function prosesDanRender() {
     });
 
     if (databaseValid.length > 0) {
-        namaKec = (databaseValid[0].KEC_NAME || "KECAMATAN").toUpperCase();
-        document.getElementById('judulHeader').innerText = namaKec + " _ SP2D";
+        namaKec = (databaseValid[0].KEC_NAME || "DATA").toUpperCase();
+        document.getElementById('judulHeader').innerText = namaKec + " _ GABUNGAN";
         st.className = "ok";
-        st.innerHTML = "✅ <b>HASIL VALIDASI:</b> Ditemukan <b>" + databaseValid.length + "</b> data unik (Duplikasi telah dihapus).";
+        st.innerHTML = `✅ <b>BERHASIL GABUNG:</b> Total <b>${databaseValid.length}</b> data unik ditemukan dari semua file.`;
     } else {
         st.className = "no";
         st.innerText = "❌ DATA TIDAK DITEMUKAN.";
@@ -161,7 +179,7 @@ function gasDownload() {
             if(cell && [2, 3, 5, 6, 12].includes(C)) cell.t = 's';
         }
     }
-    XLSX.writeFile(wb, namaKec + "_SP2D.xlsx");
+    XLSX.writeFile(wb, namaKec + "_DATA BAYAR SP2D.xlsx");
 }
 </script>
 </body>
